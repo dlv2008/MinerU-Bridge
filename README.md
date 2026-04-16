@@ -1,101 +1,16 @@
 # MinerU Bridge
 
-`mineru_bridge` 是一个面向 RAGFlow 的 MinerU 微服务部署方案。
+>**RAGFlow**是一款领先的开源检索增强生成（RAG）引擎，它将尖端的RAG技术与Agent功能相结合，为大型语言模型（LLM）构建了一个卓越的上下文层。 
+
+>**MinerU**是一款专为大型语言模型（LLM）、检索增强生成（RAG）和智能体工作流程打造的开源、高精度文档解析引擎。该引擎由上海人工智能实验室的OpenDataLab团队开发，是一站式解决方案，可将非结构化文档（如PDF、图像和DOCX文件）转换为机器可读的格式，如Markdown和JSON。
+
+>`mineru_bridge` 是一个面向 **RAGFlow** 的 **MinerU** 微服务部署方案。
 
 它的目标很简单：
 
-- 不把 MinerU 直接塞进 RAGFlow 主环境
+- 不把 MinerU 直接塞进 RAGFlow 主环境. RAGFlow 和 `mineru_bridge` 各自独立运行，两者通过本机 HTTP 通讯
 - 直接复用官方 `mineru-api`
 - 给 RAGFlow 提供一个稳定、可独立安装、可独立运维、可独立排障的 PDF 解析微服务
-
-如果你的诉求是：
-
-- 在本机、WSL、Linux 服务器上稳定跑 MinerU
-- 让 RAGFlow 通过 HTTP 调用 MinerU
-- 优先把 PDF 尤其是表格解析链路打通
-
-那么这个目录就是为这个目的准备的。
-
-## 先看效果
-
-接入完成后，整体调用关系如下：
-
-```mermaid
-flowchart LR
-    USER[用户上传 PDF] --> WEB[RAGFlow Web]
-    WEB --> API[RAGFlow Backend]
-    API -->|POST /file_parse| MAPI[mineru-api]
-    MAPI --> MOUT[MinerU 输出目录]
-    MAPI -->|ZIP| API
-    API --> RTMP[RAGFlow 临时处理目录]
-    API --> STORE[RAGFlow 入库流程]
-```
-
-对使用者来说，效果是：
-
-1. 在 RAGFlow 中选择 `MinerU` 作为 PDF parser
-2. RAGFlow 将 PDF 发送给 `mineru-api`
-3. MinerU 返回包含 `*_content_list.json` 的 ZIP
-4. RAGFlow 读取其中的文本、表格、图片、公式结果并进入后续入库流程
-
-## 这篇文档怎么读
-
-这篇文档按“先结果、后方法、再细节”的顺序组织：
-
-1. 先说明 `mineru_bridge` 是什么，以及推荐的部署方式
-2. 再给出安装、配置、启动、验证步骤
-3. 接着说明 RAGFlow 为了适配官方 MinerU 3.x 需要做哪些代码修改和运行配置
-4. 最后补充模式选型、目录职责、文件生命周期和故障排查
-
-## 适用场景
-
-`mineru_bridge` 适合下面这些场景：
-
-- 希望把 MinerU 作为独立微服务部署，而不是与 RAGFlow 混装
-- 希望在 RAGFlow 中使用官方 MinerU 3.x
-- 希望把模型安装、配置文件、日志、输出目录都收拢在一个独立目录里
-- 希望别人拿到这份文档后，可以独立完成安装、运行和接入
-
-## 验证版本
-
-本文档按下面这组版本区间组织：
-
-| 组件 | 说明 |
-| --- | --- |
-| RAGFlow | `v0.24.x` 路线 |
-| MinerU | 官方 `3.x` 路线 |
-| 接入方式 | RAGFlow 远程调用 `mineru-api` |
-
-## 为什么需要 `mineru_bridge`
-
-RAGFlow 对 MinerU 的集成，本质上只要求一个可访问的 HTTP 服务，以及符合预期的结果文件。
-
-而 MinerU 官方从旧版 `magic-pdf` 路线，已经演进到新的 `mineru` / `mineru-api` 架构。对工程接入来说，最稳的方式不是继续手搓一套兼容层，而是：
-
-- 直接使用官方 `mineru-api`
-- 用一层很薄的脚本封装完成安装、下载模型、启动服务、健康检查和冒烟测试
-
-这就是 `mineru_bridge` 的定位。
-
-## 官方能力边界
-
-本方案基于官方 MinerU 3.x 的当前能力设计，重点依赖以下事实：
-
-- `mineru-api` 保留了 `POST /file_parse` 兼容接口
-- 返回结果中仍然包含 `content_list.json`
-- 表格结果仍然通过 `table` 块和 `table_body` 表达
-
-这使得它可以作为 RAGFlow 的一个远程 PDF parser 服务。
-
-## 推荐部署方式
-
-最推荐的方式是：
-
-- RAGFlow 单独运行
-- `mineru_bridge` 单独运行
-- 两者通过本机 HTTP 通讯
-
-### 推荐拓扑
 
 ```mermaid
 flowchart LR
@@ -120,15 +35,47 @@ flowchart LR
     MAPI --> MLOG
 ```
 
-### 在 Windows + WSL 下怎么放
+## 先看效果
 
-如果你使用的是 Windows + WSL，推荐方式依然是：
+接入完成后，整体调用关系如下：
 
-- RAGFlow 跑在 WSL
-- `mineru_bridge` 跑在同一个 WSL
-- RAGFlow 通过 `127.0.0.1:8886` 访问 MinerU
+```mermaid
+flowchart LR
+    USER[用户上传 PDF] --> WEB[RAGFlow Web]
+    WEB --> API[RAGFlow Backend]
+    API -->|POST /file_parse| MAPI[mineru-api]
+    MAPI --> MOUT[MinerU 输出目录]
+    MAPI -->|ZIP| API
+    API --> RTMP[RAGFlow 临时处理目录]
+    API --> STORE[RAGFlow 入库流程]
+```
 
-这样配置最少，排障成本也最低。
+对使用者来说，效果是：
+
+1. 在 RAGFlow 中选择 `MinerU` 作为 PDF parser
+2. RAGFlow 将 PDF 发送给 `mineru-api`
+3. MinerU 返回包含 `*_content_list.json` 的 ZIP
+4. RAGFlow 读取其中的文本、表格、图片、公式结果并进入后续入库流程
+
+## 实测环境
+
+| 组件 | 说明 |
+| --- | --- |
+| RAGFlow | `v0.24.x` 路线 |
+| MinerU | 官方 `3.x` 路线 |
+| 接入方式 | RAGFlow 远程调用 `mineru-api` |
+
+RAGFlow 和 `mineru_bridge` 跑在 同一个 WSL上, RAGFlow 通过 `127.0.0.1:8886` 访问 MinerU
+
+## MinerU 3.x 能力边界
+
+本方案基于官方 MinerU 3.x 的当前能力设计，重点依赖以下事实：
+
+- `mineru-api` 保留了 `POST /file_parse` 兼容接口
+- 返回结果中仍然包含 `content_list.json`
+- 表格结果仍然通过 `table` 块和 `table_body` 表达
+
+这使得它可以作为 RAGFlow 的一个远程 PDF parser 服务。
 
 ## 安装前的建议
 
@@ -267,7 +214,7 @@ flowchart TD
 
 前者解决“如何连上微服务”，后者解决“如何正确读取官方 MinerU 3.x 返回结果”。
 
-## RAGFlow 设置界面如何填写
+### RAGFlow 设置界面如何填写
 
 推荐优先在 RAGFlow 的 MinerU 模型设置界面中完成配置，而不是先记变量名。
 
@@ -300,7 +247,7 @@ flowchart TD
 
 ### 在知识库中启用 MinerU
 
-进入数据集配置后，建议按下面的方式开始：
+进入数据集(Dataset)配置后，建议按下面的方式开始：
 
 - `PDF parser = MinerU`
 - `backend = pipeline`
@@ -308,38 +255,9 @@ flowchart TD
 - `table parsing = 开启`
 - `formula parsing = 开启`
 
-### 设置界面与解析配置示意
+### RAGFlow 需要修改哪些代码
 
-```mermaid
-flowchart TD
-    A[User Setting] --> B[Model]
-    B --> C[Add Model]
-    C --> D[选择 MinerU]
-    D --> E[填写 MinerU API 服务器配置]
-    E --> F[填写 MinerU 输出目录路径]
-    F --> G[backend = pipeline]
-
-    H[Dataset Configuration] --> I[PDF parser = MinerU]
-    I --> J[backend = pipeline]
-    J --> K[parse method = auto]
-    K --> L[table parsing = on]
-    L --> M[formula parsing = on]
-```
-
-### 什么时候才需要再看环境变量
-
-如果你的 RAGFlow 版本和部署方式支持直接在 MinerU 模型设置界面里保存这些值，那么优先用界面即可。
-
-只有在下面这些情况，才建议回头去看环境变量或启动配置：
-
-- 你的部署方式没有持久化模型配置
-- 你想做默认预置
-- 你想让多环境部署保持一致
-- 你在排查“界面配置未生效”的问题
-
-## RAGFlow 需要修改哪些代码
-
-如果你直接使用当前很多 RAGFlow 版本里的 MinerU 逻辑，可能会遇到一个实际问题：
+如果直接使用当前很多 RAGFlow 版本里的 MinerU 逻辑，会遇到一个实际问题：
 
 - MinerU 服务端已经成功返回 ZIP
 - ZIP 中也确实存在 `*_content_list.json`
@@ -347,14 +265,14 @@ flowchart TD
 
 根因通常在于：RAGFlow 侧对官方 MinerU 3.x 的输出目录结构支持不完整。
 
-### 需要修改的文件
+#### 需要修改的代码文件
 
 需要关注两个位置：
 
 - `deepdoc/parser/mineru_parser.py`
 - `rag/app/naive.py`
 
-### 修改 1：扩展 `content_list.json` 的搜索路径
+##### 修改 1：扩展 `content_list.json` 的搜索路径
 
 官方 MinerU 3.x 返回的 ZIP 解压后，结果文件不一定直接落在根目录，也可能出现在：
 
@@ -375,69 +293,7 @@ flowchart TD
 - `content_list.json` 实际存在
 - RAGFlow 因为没在正确目录里找到文件而误判失败
 
-### 修改 2：保留真实错误，不要全部报成 `MinerU not found`
-
-`rag/app/naive.py` 里对 MinerU 解析失败的兜底处理，建议不要把所有异常都统一报成：
-
-```text
-MinerU not found.
-```
-
-更合理的做法是：
-
-- 如果真的是没配置 MinerU，再报 `not found`
-- 如果是解析过程中失败，就把真实错误透出来
-
-这样才能区分：
-
-- 是服务没配
-- 还是服务返回了结果，但 RAGFlow 读取失败
-
-### 为什么这两处修改是必要的
-
-下面这张图展示的是“官方 MinerU 3.x 已成功返回结果，但 RAGFlow 仍然失败”的典型原因：
-
-```mermaid
-flowchart TD
-    A[RAGFlow 调用 mineru-api] --> B[mineru-api 返回 ZIP]
-    B --> C[ZIP 中包含 *_content_list.json]
-    C --> D{RAGFlow 能否在正确目录找到文件}
-    D -->|能| E[进入后续解析与入库]
-    D -->|不能| F[误判为 MinerU 失败]
-    F --> G[表现为 No chunk built 或误导性错误]
-```
-
-## RAGFlow 侧改动清单
-
-如果你要把 `mineru_bridge` 作为一个可复用的官方 MinerU 3.x 接入方案，那么 RAGFlow 侧至少应该完成下面这份改动清单。
-
-### 改动目标
-
-目标不是“重写 RAGFlow 的 PDF 解析器”，而是让它：
-
-- 能正确读取官方 MinerU 3.x 返回的结果结构
-- 能把错误暴露出来，而不是误导性兜底
-- 能稳定作为一个远程 MinerU client 使用
-
-### 改动项总表
-
-| 文件 | 改动点 | 目的 |
-| --- | --- | --- |
-| `deepdoc/parser/mineru_parser.py` | 扩展 `content_list.json` 搜索路径 | 适配官方 3.x 返回目录结构 |
-| `deepdoc/parser/mineru_parser.py` | 增加 method 子目录、`ocr/`、`txt/`、`auto/` 以及递归兜底搜索 | 解决 ZIP 已返回但读取失败的问题 |
-| `rag/app/naive.py` | 不再把所有异常都报成 `MinerU not found.` | 让真实错误可见 |
-| RAGFlow 模型设置界面 | 填写 `MinerU API 服务器配置` | 让 RAGFlow 能访问 MinerU 微服务 |
-| RAGFlow 模型设置界面 | 填写 `MinerU 输出目录路径` | 让 RAGFlow 有自己的结果处理目录 |
-| RAGFlow Web 配置 | 添加 `MinerU` 模型并保存 | 让前端可选择 MinerU |
-| 数据集解析配置 | 使用 `MinerU + pipeline + auto` | 以最稳配置先跑通链路 |
-
-### 最小 diff 示例
-
-如果你希望更直观地知道“到底改了哪里”，可以参考下面这两个最小 diff 片段。
-
-#### 1. `deepdoc/parser/mineru_parser.py`
-
-重点是：
+修改为：
 
 - 不再只查根目录
 - 增加 method 子目录检查
@@ -500,9 +356,26 @@ diff --git a/deepdoc/parser/mineru_parser.py b/deepdoc/parser/mineru_parser.py
 - 但文件落在 `ocr/` 之类的子目录中
 - 旧逻辑找不到，于是 RAGFlow 误判失败
 
-#### 2. `rag/app/naive.py`
 
-重点是：
+##### 修改 2：保留真实错误，不要全部报成 `MinerU not found`
+
+`rag/app/naive.py` 里对 MinerU 解析失败的兜底处理，建议不要把所有异常都统一报成：
+
+```text
+MinerU not found.
+```
+
+更合理的做法是：
+
+- 如果真的是没配置 MinerU，再报 `not found`
+- 如果是解析过程中失败，就把真实错误透出来
+
+这样才能区分：
+
+- 是服务没配
+- 还是服务返回了结果，但 RAGFlow 读取失败
+
+修改为：
 
 - 不再把所有失败都统一报成 `MinerU not found.`
 - 保留真正的异常信息
@@ -543,7 +416,22 @@ diff --git a/rag/app/naive.py b/rag/app/naive.py
 
 这种误导性错误会极大增加排障成本，因此建议一定要改。
 
-### 建议的改动顺序
+
+#### RAGFlow 侧改动清单
+
+| 文件 | 改动点 | 目的 |
+| --- | --- | --- |
+| `deepdoc/parser/mineru_parser.py` | 扩展 `content_list.json` 搜索路径 | 适配官方 3.x 返回目录结构 |
+| `deepdoc/parser/mineru_parser.py` | 增加 method 子目录、`ocr/`、`txt/`、`auto/` 以及递归兜底搜索 | 解决 ZIP 已返回但读取失败的问题 |
+| `rag/app/naive.py` | 不再把所有异常都报成 `MinerU not found.` | 让真实错误可见 |
+| RAGFlow 模型设置界面 | 填写 `MinerU API 服务器配置` | 让 RAGFlow 能访问 MinerU 微服务 |
+| RAGFlow 模型设置界面 | 填写 `MinerU 输出目录路径` | 让 RAGFlow 有自己的结果处理目录 |
+| RAGFlow Web 配置 | 添加 `MinerU` 模型并保存 | 让前端可选择 MinerU |
+| 数据集解析配置 | 使用 `MinerU + pipeline + auto` | 以最稳配置先跑通链路 |
+
+
+
+#### 建议的改动顺序
 
 ```mermaid
 flowchart TD
@@ -557,35 +445,7 @@ flowchart TD
     H --> I[数据集启用 MinerU]
     I --> J[真实 PDF 验证]
 ```
-
-### 修改完成后的判断标准
-
-如果改动已经生效，至少应该满足下面几条：
-
-- RAGFlow 能成功调用 `mineru-api`
-- 返回 ZIP 后，RAGFlow 能找到 `*_content_list.json`
-- 表格类页面不再直接落成 `No chunk built`
-- 如果失败，日志里能看到更接近真实原因的错误，而不是统一的 `MinerU not found.`
-
-## 接入 `mineru_bridge` 后，RAGFlow 运行前后需要做什么
-
-### 运行前
-
-1. 完成 `mineru_bridge` 安装和模型下载
-2. 确认 `mineru-api` 可以正常启动
-3. 确认 `smoke_test.sh` 可以返回带 `*_content_list.json` 的 ZIP
-4. 修改 RAGFlow 的 MinerU 接入代码
-5. 在 MinerU 模型设置界面填写 API 地址和输出目录
-
-### 运行后
-
-1. 重启 RAGFlow 后端和任务执行器
-2. 在 Web UI 中添加 `MinerU` 模型
-3. 在数据集配置中启用 `MinerU`
-4. 用一个真实 PDF 做一次完整解析测试
-5. 检查是否能读到表格块和 `table_body`
-
-### 接入步骤总览
+#### 接入步骤总览
 
 ```mermaid
 flowchart TD
@@ -600,7 +460,7 @@ flowchart TD
     I --> J[真实 PDF 验证]
 ```
 
-## 推荐的默认配置
+#### 数据集(Dataset)中Minuer配置参数配置
 
 如果你是第一次接入，建议从这组默认配置开始：
 
@@ -610,9 +470,7 @@ flowchart TD
 | parse method | `auto` |
 | 表格解析 | 开启 |
 | 公式解析 | 开启 |
-| 模型来源 | 先 `modelscope` 下载，再切 `local` |
 
-原因只有一个：这组配置最稳，最适合先把解析链路跑通。
 
 ## `pipeline` 与 `VLM` 应该怎么选
 
@@ -683,15 +541,6 @@ flowchart TD
 | `MINERU_OUTPUT_DIR` | RAGFlow | 返回 ZIP 的本地保存、解压、处理目录 |
 
 它们不是一回事，路径不同是正常的。
-
-### 三类目录职责图
-
-```mermaid
-flowchart TD
-    A[config/mineru.json] --> B[MinerU 配置文件]
-    C[output/] --> D[mineru-api 服务端输出目录]
-    E[MINERU_OUTPUT_DIR] --> F[RAGFlow 临时处理目录]
-```
 
 ## 文件生命周期
 
@@ -847,17 +696,6 @@ flowchart TD
     G -->|是| I[问题在 RAGFlow 后续处理链路]
 ```
 
-## 测试建议
-
-不要一上来就拿最大、最复杂的 PDF 做验证。
-
-推荐顺序：
-
-1. 用 1 份小 PDF 验证服务可用
-2. 用 1 份包含表格的真实 PDF 验证 `table_body`
-3. 用目标业务文档验证稳定性
-4. 最后再评估是否需要切到更复杂的 backend
-
 ## 参考资料
 
 - MinerU GitHub: <https://github.com/opendatalab/MinerU>
@@ -866,21 +704,4 @@ flowchart TD
 - 模型来源说明: <https://opendatalab.github.io/MinerU/usage/model_source/>
 - 输出文件说明: <https://opendatalab.github.io/MinerU/zh/reference/output_files/>
 
-## 总结
 
-`mineru_bridge` 解决的不是“如何再造一个 MinerU”，而是“如何把官方 MinerU 以工程可用的方式接进 RAGFlow”。
-
-真正重要的不是脚本本身，而是这几个原则：
-
-- MinerU 作为独立微服务运行
-- RAGFlow 只通过 HTTP 调用它
-- 优先用 `pipeline` 跑通稳定链路
-- 明确区分配置目录、服务输出目录、RAGFlow 临时处理目录
-- 在 RAGFlow 侧补齐对官方 MinerU 3.x 输出结构的适配
-
-如果你按本文档执行，目标应该不是“理解所有实现细节”，而是：
-
-- 能装起来
-- 能跑起来
-- 能接进 RAGFlow
-- 能在表格解析失败时快速定位问题
