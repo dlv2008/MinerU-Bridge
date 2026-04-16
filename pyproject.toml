@@ -1,0 +1,21 @@
+[project]
+name = "mineru-bridge"
+version = "0.1.0"
+description = "Deployment wrapper for the official MinerU API service used by RAGFlow."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "mineru[core]>=3.0.0,<4.0.0",
+]
+
+[project.optional-dependencies]
+vllm = [
+    "mineru[vllm]>=3.0.0,<4.0.0",
+]
+lmdeploy = [
+    "mineru[lmdeploy]>=3.0.0,<4.0.0",
+]
+
+[tool.uv]
+managed = true
+package = false
